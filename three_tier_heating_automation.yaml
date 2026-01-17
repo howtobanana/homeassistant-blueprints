@@ -1,0 +1,392 @@
+blueprint:
+  name: Three-Tier Heating Automation
+  description: |
+    Automates heating with four temperature modes: **Comfort** (occupied), **Eco** (home but not in room), 
+    **Away** (nobody home), and **Night** (sleeping hours). Features presence detection, geo-fencing with 
+    adaptive pre-heating, and optional humidity-based comfort adjustment.
+    
+    **Best used with Better Thermostat integration!**
+    This blueprint focuses on intelligent temperature scheduling and presence-based control. 
+    It does NOT include TRV calibration, window detection, or valve control - Better Thermostat 
+    already handles these features excellently. This avoids duplicate settings and conflicts.
+    
+    **What this blueprint does:**
+    - Sets target temperatures based on presence, location, and time
+    - Adaptive pre-heating when approaching home (distance-based)
+    - Automatic night mode (eco - 2°C)
+    - Optional humidity-based comfort adjustment
+    
+    **What Better Thermostat does (keep using it):**
+    - TRV calibration with external sensors
+    - Window open detection
+    - Valve control and protection
+    - Weather-based adjustments
+    
+    **Created by:** howtobanana
+    **Version:** 1.0
+  domain: automation
+  source_url: https://raw.githubusercontent.com/howtobanana/homeassistant-blueprints/main/three_tier_heating_automation.yaml
+
+  
+  input:
+    # === Main Climate Configuration ===
+    climate_entity:
+      name: Climate Entity
+      description: The thermostat or climate group to control (e.g., climate.wohnzimmer)
+      selector:
+        entity:
+          domain: climate
+          multiple: false
+    
+    # === Temperature Levels ===
+    comfort_temp:
+      name: Comfort Temperature
+      description: |
+        Input number for comfort temperature when someone is present in the room.
+        Typically 21-23°C for living spaces.
+      selector:
+        entity:
+          domain: input_number
+          multiple: false
+    
+    eco_temp:
+      name: Eco Temperature
+      description: |
+        Input number for eco temperature when someone is home but not in this room.
+        Typically 19-20°C. Night temperature will be automatically set to eco - 2°C.
+      selector:
+        entity:
+          domain: input_number
+          multiple: false
+    
+    away_temp:
+      name: Away Temperature
+      description: |
+        Input number for away temperature when nobody is home.
+        Typically 16-18°C for maximum energy savings.
+        
+        **TIP:** You can create one global input_number (e.g., input_number.home_away_temp) 
+        and use it for all rooms, or create separate ones per room for individual control.
+      selector:
+        entity:
+          domain: input_number
+          multiple: false
+    
+    # === Time, Distance & Presence Settings ===
+    schedule_section:
+      name: "📅 Schedule Settings"
+      description: Define active heating hours (e.g., 6 AM - 3 AM). Outside these hours, temperature is set to eco - 2°C (night mode).
+      icon: mdi:calendar-clock
+      collapsed: false
+      input:
+        enable_schedule:
+          name: Enable Schedule Control
+          description: Turn off to always run automation (no night mode)
+          default: true
+          selector:
+            boolean:
+        
+        schedule_entity:
+          name: Schedule Entity
+          description: |
+            Schedule that defines when the room should be actively heated.
+            Create in Settings → Helpers → Schedule.
+            Example: Active 6:00 AM - 3:00 AM (disables presence detection at night).
+          selector:
+            entity:
+              domain: schedule
+              multiple: false
+    
+    proximity_section:
+      name: "📍 Geo-Fencing (Proximity) Settings"
+      description: Track persons approaching home for pre-heating. Uses distance sensors from Home Assistant's proximity integration.
+      icon: mdi:map-marker-distance
+      collapsed: false
+      input:
+        enable_proximity:
+          name: Enable Geo-Fencing / Pre-Heating
+          description: Turn off to disable distance-based pre-heating
+          default: true
+          selector:
+            boolean:
+        
+        tracked_persons:
+          name: Tracked Persons
+          description: |
+            Select all persons to track for geo-fencing (1 or more).
+            When ANY person is home or approaching, heating adjusts accordingly.
+            Requires person entities with device_tracker integration.
+          selector:
+            entity:
+              domain: person
+              multiple: true
+        
+        distance_sensors:
+          name: Distance Sensors
+          description: |
+            Select distance sensors for each tracked person (from proximity integration).
+            Used for adaptive pre-heating based on outdoor temperature.
+            Create via Configuration → Integrations → Proximity.
+          selector:
+            entity:
+              domain: sensor
+              multiple: true
+        
+        outdoor_temp_sensor:
+          name: Outdoor Temperature Sensor
+          description: |
+            Outdoor temperature sensor for adaptive pre-heating.
+            - Below 0°C: Pre-heat starts at 2 km distance
+            - Below 5°C: Pre-heat starts at 1.5 km distance
+            - Above 5°C: Pre-heat starts at 1 km distance
+          selector:
+            entity:
+              domain: sensor
+              device_class: temperature
+              multiple: false
+    
+    presence_section:
+      name: "👤 Presence Detection Settings"
+      description: Detect occupancy in the room for comfort heating
+      icon: mdi:motion-sensor
+      collapsed: false
+      input:
+        enable_presence:
+          name: Enable Presence Detection
+          description: Turn off to disable presence-based comfort heating
+          default: true
+          selector:
+            boolean:
+        
+        presence_sensor:
+          name: Presence Sensor
+          description: |
+            Binary sensor that detects presence/motion in the room.
+            Triggers comfort temperature when occupied.
+            Examples: PIR sensors, mmWave radar, room-assistant.
+          selector:
+            entity:
+              domain: binary_sensor
+              device_class:
+                - motion
+                - occupancy
+                - presence
+              multiple: false
+        
+        presence_on_delay:
+          name: Presence On Delay
+          description: |
+            Minutes to wait before activating comfort mode after presence detected.
+            Prevents heating up when just walking through the room briefly.
+            Recommended: 1-2 minutes.
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 1
+              unit_of_measurement: minutes
+              mode: slider
+        
+        presence_off_delay:
+          name: Presence Off Delay
+          description: |
+            Minutes to wait before deactivating comfort mode after presence cleared.
+            Prevents dropping temperature when sitting still (watching TV, reading).
+            Recommended: 10-15 minutes.
+          default: 10
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 1
+              unit_of_measurement: minutes
+              mode: slider
+    
+    # === Special Settings ===
+    special_section:
+      name: "⚙️ Special Settings"
+      description: Advanced features for optimized comfort and efficiency
+      icon: mdi:tune-variant
+      collapsed: true
+      input:
+        enable_humidity_adjustment:
+          name: Enable Humidity-Based Temperature Adjustment
+          description: |
+            Automatically adjust comfort temperature based on indoor humidity for optimal perceived comfort.
+            
+            **How it works:**
+            - High humidity makes air feel warmer → Lower target temp by 0.5-1°C
+            - Low humidity makes air feel cooler → Raise target temp by 0.5°C
+            
+            **Based on ASHRAE thermal comfort research:**
+            - Humidity >70%: -1.0°C (feels much warmer)
+            - Humidity 60-70%: -0.5°C (feels slightly warmer)
+            - Humidity 30-60%: No adjustment (optimal comfort zone)
+            - Humidity <30%: +0.5°C (dry air feels cooler)
+            
+            Turn off if you prefer fixed temperatures regardless of humidity.
+          default: false
+          selector:
+            boolean:
+        
+        humidity_sensor:
+          name: Indoor Humidity Sensor
+          description: Humidity sensor in this room (required if humidity adjustment is enabled)
+          default: sensor.none
+          selector:
+            entity:
+              domain: sensor
+              device_class: humidity
+              multiple: false
+
+mode: restart
+max_exceeded: silent
+
+variables:
+  climate_entity: !input climate_entity
+  comfort_temp: !input comfort_temp
+  eco_temp: !input eco_temp
+  away_temp: !input away_temp
+  enable_schedule: !input enable_schedule
+  schedule_entity: !input schedule_entity
+  enable_proximity: !input enable_proximity
+  tracked_persons: !input tracked_persons
+  distance_sensors: !input distance_sensors
+  outdoor_temp_sensor: !input outdoor_temp_sensor
+  enable_presence: !input enable_presence
+  presence_sensor: !input presence_sensor
+  presence_on_delay: !input presence_on_delay
+  presence_off_delay: !input presence_off_delay
+  enable_humidity: !input enable_humidity_adjustment
+  humidity_sensor: !input humidity_sensor
+
+trigger:
+  - platform: state
+    entity_id: !input tracked_persons
+  - platform: state
+    entity_id: !input presence_sensor
+    to: "on"
+    for:
+      minutes: !input presence_on_delay
+  - platform: state
+    entity_id: !input presence_sensor
+    to: "off"
+    for:
+      minutes: !input presence_off_delay
+  - platform: state
+    entity_id: !input schedule_entity
+  - platform: state
+    entity_id: !input comfort_temp
+  - platform: state
+    entity_id: !input eco_temp
+  - platform: state
+    entity_id: !input away_temp
+  - platform: state
+    entity_id: !input outdoor_temp_sensor
+  - platform: numeric_state
+    entity_id: !input distance_sensors
+    below: 2000
+
+action:
+  - choose:
+      # Priority 1: Presence detected (with optional humidity adjustment)
+      - conditions:
+          - "{{ enable_presence }}"
+          - condition: state
+            entity_id: !input presence_sensor
+            state: "on"
+            for:
+              minutes: !input presence_on_delay
+        sequence:
+          - service: climate.set_temperature
+            target:
+              entity_id: !input climate_entity
+            data:
+              temperature: >
+                {% set base = states(comfort_temp) | float %}
+                {% if enable_humidity and humidity_sensor != 'sensor.none' %}
+                  {% set humidity = states(humidity_sensor) | float(50) %}
+                  {% if humidity > 70 %}
+                    {{ (base - 1.0) | round(1) }}
+                  {% elif humidity > 60 %}
+                    {{ (base - 0.5) | round(1) }}
+                  {% elif humidity < 30 %}
+                    {{ (base + 0.5) | round(1) }}
+                  {% else %}
+                    {{ base }}
+                  {% endif %}
+                {% else %}
+                  {{ base }}
+                {% endif %}
+      
+      # Priority 2: Nobody home AND presence off
+      - conditions:
+          - condition: template
+            value_template: >
+              {% set persons_home = namespace(count=0) %}
+              {% for person in tracked_persons %}
+                {% if states(person) == 'home' %}
+                  {% set persons_home.count = persons_home.count + 1 %}
+                {% endif %}
+              {% endfor %}
+              {{ persons_home.count == 0 }}
+          - condition: template
+            value_template: "{{ not enable_presence or is_state(presence_sensor, 'off') }}"
+        sequence:
+          - service: climate.set_temperature
+            target:
+              entity_id: !input climate_entity
+            data:
+              temperature: "{{ states(away_temp) | float }}"
+    
+    # Priority 3: Default (night, eco, pre-heating)
+    default:
+      - service: climate.set_temperature
+        target:
+          entity_id: !input climate_entity
+        data:
+          temperature: >
+            {% set eco = states(eco_temp) | float %}
+            {% set away = states(away_temp) | float %}
+            
+            {# Calculate nearest distance if proximity enabled #}
+            {% if enable_proximity %}
+              {% set outdoor = states(outdoor_temp_sensor) | float(10) %}
+              {% set distances = namespace(list=[]) %}
+              {% for sensor in distance_sensors %}
+                {% set dist = states(sensor) | float(99999) %}
+                {% set distances.list = distances.list + [dist] %}
+              {% endfor %}
+              {% set nearest_dist = distances.list | min %}
+            {% else %}
+              {% set nearest_dist = 99999 %}
+              {% set outdoor = 10 %}
+            {% endif %}
+            
+            {# Check if anyone is home #}
+            {% set persons_home = namespace(count=0) %}
+            {% for person in tracked_persons %}
+              {% if states(person) == 'home' %}
+                {% set persons_home.count = persons_home.count + 1 %}
+              {% endif %}
+            {% endfor %}
+            
+            {# Night mode: eco - 2°C #}
+            {% if enable_schedule and is_state(schedule_entity, 'off') %}
+              {{ (eco - 2) | round(1) }}
+            
+            {# Someone at home or within 1km: eco temp #}
+            {% elif persons_home.count > 0 or nearest_dist < 1000 %}
+              {{ eco }}
+            
+            {# Pre-heating: outdoor temp based distance #}
+            {% elif enable_proximity and outdoor < 0 and nearest_dist < 2000 %}
+              {{ eco }}
+            {% elif enable_proximity and outdoor < 5 and nearest_dist < 1500 %}
+              {{ eco }}
+            
+            {# Everyone far away: away temp #}
+            {% else %}
+              {{ away }}
+            {% endif %}
